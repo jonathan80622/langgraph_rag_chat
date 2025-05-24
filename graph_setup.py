@@ -60,7 +60,7 @@ class BM25Retriever:
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
         return [{"text": self.texts[i]} for i in top_indices]
 
-retriever = BM25Retriever(pickle_path=get_corpus_path())
+retriever = BM25Retriever(data=data)
 
 # ---------------------------
 # LangChain Bedrock Wrapper
