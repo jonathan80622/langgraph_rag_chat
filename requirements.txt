@@ -1,0 +1,6 @@
+streamlit
+langgraph
+langchain_aws
+langchain-community
+nltk
+rank_bm25
