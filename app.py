@@ -156,55 +156,55 @@ thread = {"configurable": {"thread_id": "1"}}
 #     debug_log("Graph finished without interrupt — terminating")
 #     return state  # end of graph
 
+from langgraph.types import Command
+
 def run_until_interrupt(state, thread):
+    """Streams assistant response until it hits an interrupt or completes."""
+    collected = ""  # Full assistant message to save
+    for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
+        if mode == "messages":
+            chunk, _ = payload
+            text = chunk.content if isinstance(chunk.content, str) else "".join(
+                seg["text"] for seg in chunk.content if seg.get("type") == "text"
+            )
+            yield "assistant", text
+            collected += text
+        elif mode == "values" and "__interrupt__" in payload:
+            yield "interrupt", collected
+            return
+    yield "complete", collected
+    return
+
+# --- RENDER CHAT HISTORY ---
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# --- USER INPUT ---
+if user_prompt := st.chat_input("Your response:"):
+    # 1. Show user message
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
+    st.session_state.messages.append({"role": "user", "content": user_prompt})
+
+    # 2. Resume LangGraph with user input
+    try:
+        resumed_state = graph.invoke(Command(resume=user_prompt), config=thread)
+        st.session_state.state = resumed_state
+    except Exception as e:
+        st.error(f"Error resuming LangGraph: {e}")
+        raise
+
+    # 3. Run assistant and stream output
     with st.chat_message("assistant"):
-        for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
-            if mode == "messages":
-                chunk, _ = payload
-                text = chunk.content if isinstance(chunk.content, str) else "".join(
-                    seg["text"] for seg in chunk.content if seg.get("type")=="text"
-                )
-                st.write(text, end="")
-            elif mode == "values" and "__interrupt__" in payload:
-                return state
-    return state
+        response_placeholder = st.empty()
+        streamed_text = ""
+        for kind, chunk in run_until_interrupt(st.session_state.state, thread):
+            if kind == "assistant":
+                streamed_text += chunk
+                response_placeholder.markdown(streamed_text)
+            elif kind in ("interrupt", "complete"):
+                break
 
-
-# --- Assistant turn ---
-if not st.session_state.awaiting:
-    debug_log("Assistant turn: running LangGraph")
-    st.info("🤖 Assistant is thinking…")
-    st.session_state.state = run_until_interrupt(st.session_state.state, thread)
-    st.session_state.awaiting = True
-    debug_log("Switched to user input phase")
-
-# --- User turn ---
-if st.session_state.awaiting:
-    debug_log("Awaiting user input")
-    user_reply = st.chat_input("Your response:")
-
-    if user_reply:
-        debug_log(f"Got user input: {user_reply}")
-        st.chat_message("user").write(user_reply)
-
-        try:
-            debug_log("Resuming LangGraph...")
-            # 1) Capture the new state from invoke
-            new_state = graph.invoke(Command(resume=user_reply), config=thread)
-            debug_log(f"Invoke returned new state: {new_state!r}")
-            # 2) Persist it for the next run
-            st.session_state.state = new_state
-            debug_log("Graph resumed successfully")
-        except Exception as e:
-            debug_log(f"Exception during resume: {e}")
-            st.error(f"LangGraph resume failed: {e}")
-            raise
-
-        # 3) Now actually stream from that new state
-        st.session_state.awaiting = False
-        debug_log("Running LangGraph again after user input")
-        st.session_state.state = run_until_interrupt(
-            st.session_state.state,
-            thread
-        )
-        st.session_state.awaiting = True
+    # 4. Save assistant message
+    st.session_state.messages.append({"role": "assistant", "content": streamed_text})
