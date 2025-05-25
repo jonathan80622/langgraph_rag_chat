@@ -153,7 +153,7 @@ def rag_runner(query: str) -> str:
     result = rag_graph.invoke({"query": query})
     return result["response"]
 
-def build_graph(llm_with_tools):
+def build_graph(llm_with_tools, rag_tool_node):
     def chatbot(state: State):
         ai_msg = llm_with_tools.invoke(state["messages"])
         return {
