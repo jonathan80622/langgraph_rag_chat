@@ -61,7 +61,7 @@ llm_with_tools = llm.bind_tools([rag_tool])
 
 if "graph" not in st.session_state:
     st.session_state["graph"] = build_graph(
-        llm_with_tools
+        llm_with_tools, rag_tool_node
     )
 graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 
