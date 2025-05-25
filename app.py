@@ -127,6 +127,8 @@ graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 #     # 3. Append final response to history
 #     st.session_state.messages.append({"role": "assistant", "content": response})
 
+thread = {"configurable": {"thread_id": "1"}}
+
 def run_until_interrupt(state, thread):
     for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
         if mode == "messages":
