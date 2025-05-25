@@ -175,14 +175,22 @@ if st.session_state.awaiting:
 
         try:
             debug_log("Resuming LangGraph...")
-            graph.invoke(Command(resume=user_reply), config=thread)
+            # 1) Capture the new state from invoke
+            new_state = graph.invoke(Command(resume=user_reply), config=thread)
+            debug_log(f"Invoke returned new state: {new_state!r}")
+            # 2) Persist it for the next run
+            st.session_state.state = new_state
             debug_log("Graph resumed successfully")
         except Exception as e:
             debug_log(f"Exception during resume: {e}")
             st.error(f"LangGraph resume failed: {e}")
-            raise e
+            raise
 
+        # 3) Now actually stream from that new state
         st.session_state.awaiting = False
         debug_log("Running LangGraph again after user input")
-        st.session_state.state = run_until_interrupt(st.session_state.state, thread)
+        st.session_state.state = run_until_interrupt(
+            st.session_state.state,
+            thread
+        )
         st.session_state.awaiting = True
