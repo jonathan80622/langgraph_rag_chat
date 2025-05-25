@@ -127,44 +127,32 @@ graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 #     # 3. Append final response to history
 #     st.session_state.messages.append({"role": "assistant", "content": response})
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-state = {"messages": []}
-thread = {"configurable": {"thread_id": "chat-1"}}
-
-# --- 2) HELPER: DRAIN UNTIL INTERRUPT ---
 def run_until_interrupt(state, thread):
-    """Stream the graph until it hits an `interrupt()`, then return the last state."""
-    partial = ""
     for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
         if mode == "messages":
-            chunk, _ = payload
-            text = (chunk.content
-                    if isinstance(chunk.content, str)
-                    else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text"))
-            st.markdown(text)           # render token
-            partial += text
+            msg_chunk, _ = payload
+            text = (msg_chunk.content 
+                    if isinstance(msg_chunk.content, str) 
+                    else "".join(seg["text"] for seg in msg_chunk.content if seg.get("type")=="text"))
+            st.chat_message("assistant").write(text)
         elif mode == "values" and "__interrupt__" in payload:
-            return graph.state, partial  # compiled graph exposes its latest state via `.state`
-    return graph.state, partial         # ran to end (no more interrupts)
+            return state
+    return state
 
-# --- 3) INITIAL RUN: TRIGGER ASSISTANT TO PAUSE FOR USER ---
+# 5) Phase A: assistant turn
 if not st.session_state.awaiting:
     st.info("🤖 Assistant is thinking…")
-    # run from scratch (state=None) until it calls interrupt()
-    st.session_state.state, _ = run_until_interrupt(state=None, thread=thread)
+    st.session_state.state = run_until_interrupt(st.session_state.state, thread)
     st.session_state.awaiting = True
 
-# --- 4) WHEN AWAITING: SHOW INPUT & RESUME ---
+# 6) Phase B: user turn
 if st.session_state.awaiting:
-    user_reply = st.chat_input("Your response:")
-    if user_reply:
-        # resume at the last interrupt point, *with the same thread config*
-        cmd = Command(resume=user_reply)
-        graph.invoke(cmd, config=thread)
+    user_input = st.chat_input("Your response:")  # only called once
+    if user_input:
+        st.chat_message("user").write(user_input)
+        # Resume graph from interrupt
+        graph.invoke(Command(resume=user_input), config=thread)
         st.session_state.awaiting = False
-
-        # immediately drain until next interrupt
-        st.session_state.state, _ = run_until_interrupt(state=None, thread=thread)
+        # Immediately drain next assistant segment
+        st.session_state.state = run_until_interrupt(st.session_state.state, thread)
         st.session_state.awaiting = True
