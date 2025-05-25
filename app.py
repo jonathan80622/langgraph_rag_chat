@@ -118,7 +118,7 @@ def run_until_interrupt(state, thread):
 # --- Main chat loop ---
 thread = {"configurable": {"thread_id":"1"}}
 
-# 1) Render prior history
+# 1) Render existing history
 for msg in st.session_state.get("messages", []):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -128,31 +128,30 @@ if user_text := st.chat_input("Your response:"):
     # a) Show user bubble
     with st.chat_message("user"):
         st.markdown(user_text)
-    st.session_state.messages.append({"role":"user","content":user_text})
+    st.session_state.messages.append({"role":"user","content":user_text}) # for rendering use
     debug_log(f"User input: {user_text!r}")
 
     # b) Resume the graph
-    try:
-        cmd = Command(resume=user_text)
-        resumed = graph.resume(st.session_state.state, cmd)
-        st.session_state.state = resumed
-        debug_log("Graph resumed successfully")
-    except Exception as e:
-        st.error(f"Error resuming graph: {e}")
-        debug_log(f"Resume error: {e!r}")
-        raise
-
-    # c) Assistant turn (streaming)
-    assistant_reply = ""
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        for kind, chunk in run_until_interrupt(st.session_state.state, thread):
-            if kind == "assistant":
-                assistant_reply += chunk
-                placeholder.markdown(assistant_reply)
-            else:  # interrupt or complete
-                debug_log(f"Streaming ended with kind={kind}")
+        full_reply = ""
+        for mode, payload in graph.stream(
+                Command(resume=user_input),
+                thread_config,
+                stream_mode=["messages", "values"]
+            ):
+            if mode == "messages":
+                chunk, _ = payload
+                text = (
+                    chunk.content
+                    if isinstance(chunk.content, str)
+                    else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text")
+                )
+                full_reply += text
+                placeholder.markdown(full_reply)
+            elif mode == "values" and "__interrupt__" in payload:
+                # graph hit another interrupt
                 break
 
-    # d) Save assistant bubble
-    st.session_state.messages.append({"role":"assistant","content":assistant_reply})
+    # c) Save assistant bubble
+    st.session_state.messages.append({"role":"assistant","content":full_reply})
