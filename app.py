@@ -156,7 +156,7 @@ thread = {"configurable": {"thread_id": "1"}}
 #     debug_log("Graph finished without interrupt — terminating")
 #     return state  # end of graph
 
-def run_until_interrupt(state):
+def run_until_interrupt(state, thread):
     with st.chat_message("assistant"):
         for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
             if mode == "messages":
