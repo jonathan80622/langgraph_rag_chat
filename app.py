@@ -136,7 +136,7 @@ if user_text := st.chat_input("Your response:"):
         placeholder = st.empty()
         full_reply = ""
         for mode, payload in graph.stream(
-                Command(resume=user_input),
+                Command(resume=user_text),
                 thread_config,
                 stream_mode=["messages", "values"]
             ):
