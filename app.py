@@ -109,6 +109,13 @@ if prompt := st.chat_input("Your response:"):
     st.write(f'st.session_state.messages {st.session_state.messages}')
     st.write(f'st.session_state.states {st.session_state.state}')
 
+    st.session_state.state = {
+            "messages": [
+                HumanMessage(content=prompt)
+            ]
+        }
+
+
     # 3) Assistant bubble
     with st.chat_message("assistant"):
         placeholder = st.empty()
