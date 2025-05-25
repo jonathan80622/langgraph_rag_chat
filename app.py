@@ -13,9 +13,18 @@ from graph_setup import build_rag_graph, build_graph, rag_runner
 from langchain_core.tools import Tool
 from langgraph.prebuilt.tool_node import ToolNode
 
-def debug_log(msg: str):
-    print(f"[DEBUG] {msg}", flush=True)
-    st.text(f"[DEBUG] {msg}")
+import streamlit as st
+
+def debug_log(line: str):
+    """Append a debug line to session_state and show it in the sidebar."""
+    if "debug_logs" not in st.session_state:
+        st.session_state.debug_logs = []
+    st.session_state.debug_logs.append(line)
+
+    # Render in a sidebar expander
+    with st.sidebar.expander("🐞 Debug Logs", expanded=False):
+        for msg in st.session_state.debug_logs[-50:]:  # show last 50
+            st.text(msg)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -82,129 +91,68 @@ if "graph" not in st.session_state:
         llm_with_tools, rag_tool_node
     )
 graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
-
-# def langgraph_stream_to_text(graph, thread, initial_state):
-#     state = initial_state
-#     while True:
-#         for mode, payload in graph.stream(
-#                 state,
-#                 thread,
-#                 stream_mode=["messages", "values"]):
-#             if mode == "messages":
-#                 chunk, _ = payload
-#                 # 1) If content is string
-#                 if isinstance(chunk.content, str):
-#                     yield chunk.content
-#                 # 2) If content is list of segments
-#                 else:
-#                     for seg in chunk.content:
-#                         if seg.get("type") == "text":
-#                             yield seg["text"]
-#             elif mode == "values" and "__interrupt__" in payload:
-#                 # handle any interactive interrupts if needed…
-#                 state = Command(resume=input("…"))  # adjust for Streamlit if desired
-#                 break
-#         else:
-#             # normal completion
-#             return
-
-# if "messages" not in st.session_state:
-#     st.session_state.messages = []
-          
-# thread = {"configurable": {"thread_id": "1"}}
-# state = {"messages": []}
-
-# st.title("LangGraph + Streamlit Chat")
-
-# # User input
-# if prompt := st.chat_input("Type your message"):
-#     # 1. Record user message
-#     st.session_state.messages.append({"role": "user", "content": prompt})
-#     with st.chat_message("user"):
-#         st.markdown(prompt)
-
-#     # 2. Stream assistant response
-#     with st.chat_message("assistant"):
-#         response = st.write_stream(
-#             langgraph_stream_to_text(graph, thread, state)
-#         )
-
-#     # 3. Append final response to history
-#     st.session_state.messages.append({"role": "assistant", "content": response})
-
-thread = {"configurable": {"thread_id": "1"}}
-# def run_until_interrupt(state, thread):
-#     debug_log("Starting run_until_interrupt")
-#     for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
-#         debug_log(f"mode: {mode}")
-
-#         if mode == "messages":
-#             chunk, _ = payload
-#             text = chunk.content if isinstance(chunk.content, str) else "".join(
-#                 seg["text"] for seg in chunk.content if seg.get("type") == "text"
-#             )
-#             debug_log(f"Assistant chunk: {text.strip()[:80]}")
-#             st.chat_message("assistant").write(text)
-
-#         elif mode == "values":
-#             if "__interrupt__" in payload:
-#                 debug_log("Received interrupt signal")
-#                 return state  # assistant paused, return
-#             else:
-#                 debug_log("Got updated state without interrupt")
-#                 state = payload
-#     debug_log("Graph finished without interrupt — terminating")
-#     return state  # end of graph
-
-from langgraph.types import Command
-
 def run_until_interrupt(state, thread):
-    """Streams assistant response until it hits an interrupt or completes."""
-    collected = ""  # Full assistant message to save
-    for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
+    """Yields ('assistant', text) or ('interrupt', full_text)."""
+    collected = ""
+    debug_log(f"▶ run_until_interrupt start, state={state!r}")
+    for idx, (mode, payload) in enumerate(graph.stream(state, thread, stream_mode=["messages","values"])):
+        debug_log(f"[{idx}] mode={mode!r}, payload={payload!r}")
         if mode == "messages":
             chunk, _ = payload
-            text = chunk.content if isinstance(chunk.content, str) else "".join(
-                seg["text"] for seg in chunk.content if seg.get("type") == "text"
+            text = (
+                chunk.content
+                if isinstance(chunk.content, str)
+                else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text")
             )
+            debug_log(f"   → chunk text: {text!r}")
             yield "assistant", text
             collected += text
         elif mode == "values" and "__interrupt__" in payload:
+            debug_log("   → hit INTERRUPT")
             yield "interrupt", collected
             return
+    debug_log("   → stream completed without interrupt")
     yield "complete", collected
-    return
+    debug_log("▶ run_until_interrupt end")
 
-# --- RENDER CHAT HISTORY ---
-for msg in st.session_state.messages:
+# --- Main chat loop ---
+thread = {"configurable": {"thread_id":"1"}}
+
+# 1) Render prior history
+for msg in st.session_state.get("messages", []):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- USER INPUT ---
-if user_prompt := st.chat_input("Your response:"):
-    # 1. Show user message
+# 2) User turn
+if user_text := st.chat_input("Your response:"):
+    # a) Show user bubble
     with st.chat_message("user"):
-        st.markdown(user_prompt)
-    st.session_state.messages.append({"role": "user", "content": user_prompt})
+        st.markdown(user_text)
+    st.session_state.messages.append({"role":"user","content":user_text})
+    debug_log(f"User input: {user_text!r}")
 
-    # 2. Resume LangGraph with user input
+    # b) Resume the graph
     try:
-        resumed_state = graph.invoke(Command(resume=user_prompt), config=thread)
-        st.session_state.state = resumed_state
+        cmd = Command(resume=user_text)
+        resumed = graph.resume(st.session_state.state, cmd)
+        st.session_state.state = resumed
+        debug_log("Graph resumed successfully")
     except Exception as e:
-        st.error(f"Error resuming LangGraph: {e}")
+        st.error(f"Error resuming graph: {e}")
+        debug_log(f"Resume error: {e!r}")
         raise
 
-    # 3. Run assistant and stream output
+    # c) Assistant turn (streaming)
+    assistant_reply = ""
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        streamed_text = ""
+        placeholder = st.empty()
         for kind, chunk in run_until_interrupt(st.session_state.state, thread):
             if kind == "assistant":
-                streamed_text += chunk
-                response_placeholder.markdown(streamed_text)
-            elif kind in ("interrupt", "complete"):
+                assistant_reply += chunk
+                placeholder.markdown(assistant_reply)
+            else:  # interrupt or complete
+                debug_log(f"Streaming ended with kind={kind}")
                 break
 
-    # 4. Save assistant message
-    st.session_state.messages.append({"role": "assistant", "content": streamed_text})
+    # d) Save assistant bubble
+    st.session_state.messages.append({"role":"assistant","content":assistant_reply})
