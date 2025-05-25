@@ -101,6 +101,68 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # --- Main user input box ---
+# 1) Render history…
+
+# 2) User inputs initial prompt via st.chat_input
+if prompt := st.chat_input("Your response:"):
+    st.session_state.messages.append({"role":"user","content":prompt})
+
+    # 3) Assistant bubble
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        full = ""
+        done = False
+
+        while not done:
+            for mode, payload in graph.stream(
+                st.session_state.state, thread,
+                stream_mode=["messages","values"]
+            ):
+                if mode == "messages":
+                    st.write(f'Message incoming: {chunk}')
+                    chunk, _ = payload
+                    text = (
+                        chunk.content
+                        if isinstance(chunk.content, str)
+                        else "".join(
+                            seg["text"] 
+                            for seg in chunk.content 
+                            if seg.get("type") == "text"
+                        )
+                    )
+                    full_reply += text
+                    placeholder.markdown(full_reply)
+                elif mode == "values":
+                    st.write(f'values incoming {payload}')
+                    if "__interrupt__" in payload:
+                        # stash interrupt and state, then break FOR
+                        st.session_state.state = payload
+                        break
+                    else:
+                        # final snapshot → exit both loops
+                        st.session_state.state = payload
+                        placeholder.markdown(full)
+                        done = True
+                        break
+            if not done and "__interrupt__" in st.session_state.state:
+                # we just broke on an interrupt
+                pass  # outer while loops again only after user reply
+
+    # 4) Outside assistant: if interrupted, show user prompt
+    if "__interrupt__" in st.session_state.state:
+        intr = st.session_state.state["__interrupt__"][0]
+        with st.chat_message("user"):
+            next_reply = st.text_input(intr.value, key="resume_input")
+        if next_reply:
+            st.session_state.messages.append({"role":"user","content":next_reply})
+            st.session_state.state = Command(resume=next_reply)
+            st.experimental_rerun()
+
+    # 5) If done: append assistant reply to history
+    if done:
+        st.session_state.messages.append({"role":"assistant","content":full})
+
+
 user_text = st.chat_input("Your response:")
 if user_text:
     # a) Append & render the new user message
@@ -118,18 +180,7 @@ if user_text:
                 stream_mode=["messages", "values"],
             ):
                 if mode == "messages":
-                    chunk, _ = payload
-                    text = (
-                        chunk.content
-                        if isinstance(chunk.content, str)
-                        else "".join(
-                            seg["text"] 
-                            for seg in chunk.content 
-                            if seg.get("type") == "text"
-                        )
-                    )
-                    full_reply += text
-                    placeholder.markdown(full_reply)
+
 
                 elif mode == "values":
                     # Interrupt: graph is waiting for more user input
