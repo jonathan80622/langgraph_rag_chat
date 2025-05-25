@@ -146,20 +146,22 @@ def run_until_interrupt(state):
             return state, partial
     return state, partial
 
-# In your Streamlit callback:
-if "awaiting" not in st.session_state:
-    # start or resume the graph
+# --- Assistant Trigger ---
+st.title("💬 LangGraph Assistant")
+
+# First run: start the graph and wait for user input
+if not st.session_state.awaiting:
+    st.info("🤖 Assistant is thinking...")
     st.session_state.state, _ = run_until_interrupt(st.session_state.state)
     st.session_state.awaiting = True
 
+# Show input box for user to respond
 if st.session_state.awaiting:
-    # show input box for the interrupt
     user_reply = st.chat_input("Your response:")
     if user_reply:
-        # feed reply back into the graph
-        cmd = Command(resume=user_reply)
-        # next run will pick up the resume internally
-        st.session_state.state = graph.resume(st.session_state.state, cmd)
+        # Resume the graph with user input
+        st.session_state.state = graph.resume(st.session_state.state, Command(resume=user_reply))
         st.session_state.awaiting = False
-        # now loop back to run_until_interrupt and stream assistant again
-
+        # Immediately continue until next interrupt
+        st.session_state.state, _ = run_until_interrupt(st.session_state.state)
+        st.session_state.awaiting = True
