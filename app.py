@@ -84,6 +84,8 @@ if "graph" not in st.session_state:
     )
 graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 
+thread = {"configurable": {"thread_id": "1"}}
+
 if "state" not in st.session_state:
     st.session_state.state = {"messages": []}
 if "messages" not in st.session_state:
