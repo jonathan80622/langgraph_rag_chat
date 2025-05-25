@@ -133,28 +133,42 @@ graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 #     st.session_state.messages.append({"role": "assistant", "content": response})
 
 thread = {"configurable": {"thread_id": "1"}}
-def run_until_interrupt(state, thread):
-    debug_log("Starting run_until_interrupt")
-    for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
-        debug_log(f"mode: {mode}")
+# def run_until_interrupt(state, thread):
+#     debug_log("Starting run_until_interrupt")
+#     for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
+#         debug_log(f"mode: {mode}")
 
-        if mode == "messages":
-            chunk, _ = payload
-            text = chunk.content if isinstance(chunk.content, str) else "".join(
-                seg["text"] for seg in chunk.content if seg.get("type") == "text"
-            )
-            debug_log(f"Assistant chunk: {text.strip()[:80]}")
-            st.chat_message("assistant").write(text)
+#         if mode == "messages":
+#             chunk, _ = payload
+#             text = chunk.content if isinstance(chunk.content, str) else "".join(
+#                 seg["text"] for seg in chunk.content if seg.get("type") == "text"
+#             )
+#             debug_log(f"Assistant chunk: {text.strip()[:80]}")
+#             st.chat_message("assistant").write(text)
 
-        elif mode == "values":
-            if "__interrupt__" in payload:
-                debug_log("Received interrupt signal")
-                return state  # assistant paused, return
-            else:
-                debug_log("Got updated state without interrupt")
-                state = payload
-    debug_log("Graph finished without interrupt — terminating")
-    return state  # end of graph
+#         elif mode == "values":
+#             if "__interrupt__" in payload:
+#                 debug_log("Received interrupt signal")
+#                 return state  # assistant paused, return
+#             else:
+#                 debug_log("Got updated state without interrupt")
+#                 state = payload
+#     debug_log("Graph finished without interrupt — terminating")
+#     return state  # end of graph
+
+def run_until_interrupt(state):
+    with st.chat_message("assistant"):
+        for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
+            if mode == "messages":
+                chunk, _ = payload
+                text = chunk.content if isinstance(chunk.content, str) else "".join(
+                    seg["text"] for seg in chunk.content if seg.get("type")=="text"
+                )
+                st.write(text, end="")
+            elif mode == "values" and "__interrupt__" in payload:
+                return state
+    return state
+
 
 # --- Assistant turn ---
 if not st.session_state.awaiting:
