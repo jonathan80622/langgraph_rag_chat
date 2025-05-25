@@ -106,6 +106,8 @@ for msg in st.session_state.messages:
 # 2) User inputs initial prompt via st.chat_input
 if prompt := st.chat_input("Your response:"):
     st.session_state.messages.append({"role":"user","content":prompt})
+    st.write(f'st.session_state.messages {st.session_state.messages}')
+    st.write(f'st.session_state.states {st.session_state.states}')
 
     # 3) Assistant bubble
     with st.chat_message("assistant"):
@@ -119,8 +121,8 @@ if prompt := st.chat_input("Your response:"):
                 stream_mode=["messages","values"]
             ):
                 if mode == "messages":
-                    st.write(f'Message incoming: {chunk}')
                     chunk, _ = payload
+                    st.write(f'Message incoming: {chunk}')
                     text = (
                         chunk.content
                         if isinstance(chunk.content, str)
