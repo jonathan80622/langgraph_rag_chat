@@ -149,11 +149,11 @@ memory = MemorySaver()
 class State(TypedDict, total=False):         #  <-- total=False !!
     messages: Annotated[list, add_messages]
 
+def rag_runner(query: str) -> str:
+    result = rag_graph.invoke({"query": query})
+    return result["response"]
+
 def build_graph(llm_with_tools):
-    def rag_runner(query: str) -> str:
-        result = rag_graph.invoke({"query": query})
-        return result["response"]
-    
     def chatbot(state: State):
         ai_msg = llm_with_tools.invoke(state["messages"])
         return {
