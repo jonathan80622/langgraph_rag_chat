@@ -107,7 +107,7 @@ for msg in st.session_state.messages:
 if prompt := st.chat_input("Your response:"):
     st.session_state.messages.append({"role":"user","content":prompt})
     st.write(f'st.session_state.messages {st.session_state.messages}')
-    st.write(f'st.session_state.states {st.session_state.state}')
+    st.write(f'st.session_state.state before writing {st.session_state.state}')
 
     st.session_state.state = {
             "messages": [
@@ -115,6 +115,7 @@ if prompt := st.chat_input("Your response:"):
             ]
         }
 
+    st.write(f'st.session_state.state after writing {st.session_state.state}')
 
     # 3) Assistant bubble
     with st.chat_message("assistant"):
@@ -123,6 +124,7 @@ if prompt := st.chat_input("Your response:"):
         done = False
 
         while not done:
+            st.write('not done')
             for mode, payload in graph.stream(
                 st.session_state.state, thread,
                 stream_mode=["messages","values"]
