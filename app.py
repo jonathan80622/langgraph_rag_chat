@@ -128,33 +128,56 @@ graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 #     st.session_state.messages.append({"role": "assistant", "content": response})
 
 thread = {"configurable": {"thread_id": "1"}}
-
 def run_until_interrupt(state, thread):
-    for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
-        if mode == "messages":
-            msg_chunk, _ = payload
-            text = (msg_chunk.content 
-                    if isinstance(msg_chunk.content, str) 
-                    else "".join(seg["text"] for seg in msg_chunk.content if seg.get("type")=="text"))
-            st.chat_message("assistant").write(text)
-        elif mode == "values" and "__interrupt__" in payload:
-            return state
-    return state
+    print("[RUI] Starting run_until_interrupt")
+    for mode, payload in graph.stream(state, thread, stream_mode=["messages", "values"]):
+        print(f"[RUI] mode: {mode}")
 
-# 5) Phase A: assistant turn
+        if mode == "messages":
+            chunk, _ = payload
+            text = chunk.content if isinstance(chunk.content, str) else "".join(
+                seg["text"] for seg in chunk.content if seg.get("type") == "text"
+            )
+            print(f"[RUI] Assistant chunk: {text.strip()[:80]}")
+            st.chat_message("assistant").write(text)
+
+        elif mode == "values":
+            if "__interrupt__" in payload:
+                print("[RUI] Received interrupt signal")
+                return state  # assistant paused, return
+            else:
+                print("[RUI] Got updated state without interrupt")
+                state = payload
+    print("[RUI] Graph finished without interrupt — terminating")
+    return state  # end of graph
+
+# --- Assistant turn ---
 if not st.session_state.awaiting:
+    print("[MAIN] Assistant turn: running LangGraph")
     st.info("🤖 Assistant is thinking…")
     st.session_state.state = run_until_interrupt(st.session_state.state, thread)
     st.session_state.awaiting = True
+    print("[MAIN] Switched to user input phase")
 
-# 6) Phase B: user turn
+# --- User turn ---
 if st.session_state.awaiting:
-    user_input = st.chat_input("Your response:")  # only called once
-    if user_input:
-        st.chat_message("user").write(user_input)
-        # Resume graph from interrupt
-        graph.invoke(Command(resume=user_input), config=thread)
+    print("[MAIN] Awaiting user input")
+    user_reply = st.chat_input("Your response:")
+
+    if user_reply:
+        print(f"[MAIN] Got user input: {user_reply}")
+        st.chat_message("user").write(user_reply)
+
+        try:
+            print("[MAIN] Resuming LangGraph...")
+            graph.invoke(Command(resume=user_reply), config=thread)
+            print("[MAIN] Graph resumed successfully")
+        except Exception as e:
+            print(f"[ERROR] Exception during resume: {e}")
+            st.error(f"LangGraph resume failed: {e}")
+            raise e
+
         st.session_state.awaiting = False
-        # Immediately drain next assistant segment
+        print("[MAIN] Running LangGraph again after user input")
         st.session_state.state = run_until_interrupt(st.session_state.state, thread)
         st.session_state.awaiting = True
