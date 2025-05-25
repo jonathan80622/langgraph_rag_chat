@@ -161,7 +161,7 @@ if st.session_state.awaiting:
     user_reply = st.chat_input("Your response:")
     if user_reply:
         # Resume the graph with user input
-        st.session_state.state = graph.invoke(Command(resume=reply))
+        st.session_state.state = graph.invoke(Command(resume=user_reply))
         st.session_state.awaiting = False
         # Immediately continue until next interrupt
         st.session_state.state, _ = run_until_interrupt(st.session_state.state)
