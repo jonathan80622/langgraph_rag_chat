@@ -11,6 +11,14 @@ from graph_setup import build_rag_graph, build_graph, rag_runner
 from langchain_core.tools import Tool
 from langgraph.prebuilt.tool_node import ToolNode
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "state" not in st.session_state:
+    st.session_state.state = {"messages": []}
+
+if "awaiting" not in st.session_state:
+    st.session_state.awaiting = False
 
 st.set_page_config(page_title="LangGraph Chatbot", layout="wide")
 st.title("🔍 LangGraph-powered Chatbot with API Key Input")
