@@ -26,14 +26,6 @@ def debug_log(line: str):
         for msg in st.session_state.debug_logs[-50:]:  # show last 50
             st.text(msg)
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "state" not in st.session_state:
-    st.session_state.state = {"messages": []}
-
-if "awaiting" not in st.session_state:
-    st.session_state.awaiting = False
 
 st.set_page_config(page_title="LangGraph Chatbot", layout="wide")
 st.title("🔍 LangGraph-powered Chatbot with API Key Input")
@@ -91,67 +83,74 @@ if "graph" not in st.session_state:
         llm_with_tools, rag_tool_node
     )
 graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
-def run_until_interrupt(state, thread):
-    """Yields ('assistant', text) or ('interrupt', full_text)."""
-    collected = ""
-    debug_log(f"▶ run_until_interrupt start, state={state!r}")
-    for idx, (mode, payload) in enumerate(graph.stream(state, thread, stream_mode=["messages","values"])):
-        debug_log(f"[{idx}] mode={mode!r}, payload={payload!r}")
-        if mode == "messages":
-            chunk, _ = payload
-            text = (
-                chunk.content
-                if isinstance(chunk.content, str)
-                else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text")
-            )
-            debug_log(f"   → chunk text: {text!r}")
-            yield "assistant", text
-            collected += text
-        elif mode == "values" and "__interrupt__" in payload:
-            debug_log("   → hit INTERRUPT")
-            yield "interrupt", collected
-            return
-    debug_log("   → stream completed without interrupt")
-    yield "complete", collected
-    debug_log("▶ run_until_interrupt end")
 
-# --- Main chat loop ---
-thread = {"configurable": {"thread_id":"1"}}
+if "state" not in st.session_state:
+    st.session_state.state = {"messages": []}
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# 1) Render existing history
-for msg in st.session_state.get("messages", []):
+# --- Helper: inline user prompt for interrupts ---
+def ask_user(prompt: str):
+    return st.text_input(prompt, key=f"user_input_{len(st.session_state.messages)}")
+
+# --- Render existing conversation history ---
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 2) User turn
-if user_text := st.chat_input("Your response:"):
-    # a) Show user bubble
-    with st.chat_message("user"):
-        st.markdown(user_text)
-    st.session_state.messages.append({"role":"user","content":user_text}) # for rendering use
-    debug_log(f"User input: {user_text!r}")
+# --- Main user input box ---
+user_text = st.chat_input("Your response:")
+if user_text:
+    # a) Append & render the new user message
+    st.session_state.messages.append({"role": "user", "content": user_text})
 
-    # b) Resume the graph
+    # b) Stream the assistant’s reply, handling interrupts inline
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_reply = ""
-        for mode, payload in graph.stream(
-                Command(resume=user_text),
-                thread,
-                stream_mode=["messages", "values"]
-            ):
-            if mode == "messages":
-                chunk, _ = payload
-                text = (
-                    chunk.content
-                    if isinstance(chunk.content, str)
-                    else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text")
-                )
-                full_reply += text
-                placeholder.markdown(full_reply)
-            elif mode == "values" and "__interrupt__" in payload:
-                # graph hit another interrupt
-                break
 
-    # c) Save assistant bubble
-    st.session_state.messages.append({"role":"assistant","content":full_reply})
+        while True:
+            for mode, payload in graph.stream(
+                st.session_state.state,
+                thread,
+                stream_mode=["messages", "values"],
+            ):
+                if mode == "messages":
+                    chunk, _ = payload
+                    text = (
+                        chunk.content
+                        if isinstance(chunk.content, str)
+                        else "".join(
+                            seg["text"] 
+                            for seg in chunk.content 
+                            if seg.get("type") == "text"
+                        )
+                    )
+                    full_reply += text
+                    placeholder.markdown(full_reply)
+
+                elif mode == "values":
+                    # Interrupt: graph is waiting for more user input
+                    if "__interrupt__" in payload:
+                        intr = payload["__interrupt__"][0]
+                        user_next = ask_user(intr.value)
+                        if not user_next:
+                            # pause until the user types something
+                            return
+
+                        # resume from the same point
+                        st.session_state.state = Command(resume=user_next)
+                        st.session_state.messages.append({"role": "user", "content": user_next})
+                        break
+
+                    # No more interrupts: finalise state & break both loops
+                    else:
+                        st.session_state.state = payload
+                        placeholder.markdown(full_reply)
+                        raise StopIteration
+            else:
+                # normal completion
+                raise StopIteration
+
+    # c) Save the assistant’s full reply in history
+    st.session_state.messages.append({"role": "assistant", "content": full_reply})
