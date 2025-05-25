@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from langchain_aws.chat_models.bedrock import ChatBedrock
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda
