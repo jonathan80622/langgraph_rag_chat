@@ -131,38 +131,40 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 state = {"messages": []}
-thread = {"configurable":{"thread_id":"1"}}
+thread = {"configurable": {"thread_id": "chat-1"}}
 
-def run_until_interrupt(state):
+# --- 2) HELPER: DRAIN UNTIL INTERRUPT ---
+def run_until_interrupt(state, thread):
+    """Stream the graph until it hits an `interrupt()`, then return the last state."""
     partial = ""
     for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
         if mode == "messages":
             chunk, _ = payload
-            text = chunk.content if isinstance(chunk.content, str) else "".join(
-                seg["text"] for seg in chunk.content if seg.get("type")=="text"
-            )
+            text = (chunk.content
+                    if isinstance(chunk.content, str)
+                    else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text"))
+            st.markdown(text)           # render token
             partial += text
-            st.write(text, end="")   # or st.markdown to show it
         elif mode == "values" and "__interrupt__" in payload:
-            return state, partial
-    return state, partial
+            return graph.state, partial  # compiled graph exposes its latest state via `.state`
+    return graph.state, partial         # ran to end (no more interrupts)
 
-# --- Assistant Trigger ---
-st.title("💬 LangGraph Assistant")
-
-# First run: start the graph and wait for user input
+# --- 3) INITIAL RUN: TRIGGER ASSISTANT TO PAUSE FOR USER ---
 if not st.session_state.awaiting:
-    st.info("🤖 Assistant is thinking...")
-    st.session_state.state, _ = run_until_interrupt(st.session_state.state)
+    st.info("🤖 Assistant is thinking…")
+    # run from scratch (state=None) until it calls interrupt()
+    st.session_state.state, _ = run_until_interrupt(state=None, thread=thread)
     st.session_state.awaiting = True
 
-# Show input box for user to respond
+# --- 4) WHEN AWAITING: SHOW INPUT & RESUME ---
 if st.session_state.awaiting:
     user_reply = st.chat_input("Your response:")
     if user_reply:
-        # Resume the graph with user input
-        st.session_state.state = graph.invoke(Command(resume=user_reply))
+        # resume at the last interrupt point, *with the same thread config*
+        cmd = Command(resume=user_reply)
+        graph.invoke(cmd, config=thread)
         st.session_state.awaiting = False
-        # Immediately continue until next interrupt
-        st.session_state.state, _ = run_until_interrupt(st.session_state.state)
+
+        # immediately drain until next interrupt
+        st.session_state.state, _ = run_until_interrupt(state=None, thread=thread)
         st.session_state.awaiting = True
