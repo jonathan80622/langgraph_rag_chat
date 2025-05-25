@@ -103,17 +103,17 @@ for msg in st.session_state.messages:
 # --- Main user input box ---
 # 1) Render history…
 
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
 # 2) User inputs initial prompt via st.chat_input
 if prompt := st.chat_input("Your response:"):
     st.session_state.messages.append({"role":"user","content":prompt})
     st.write(f'st.session_state.messages {st.session_state.messages}')
     st.write(f'st.session_state.state before writing {st.session_state.state}')
 
-    st.session_state.state = {
-            "messages": [
-                HumanMessage(content=prompt)
-            ]
-        }
+    st.session_state.state = Command(resume=prompt)
 
     st.write(f'st.session_state.state after writing {st.session_state.state}')
 
