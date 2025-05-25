@@ -65,51 +65,89 @@ if "graph" not in st.session_state:
     )
 graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 
-def langgraph_stream_to_text(graph, thread, initial_state):
-    state = initial_state
-    while True:
-        for mode, payload in graph.stream(
-                state,
-                thread,
-                stream_mode=["messages", "values"]):
-            if mode == "messages":
-                chunk, _ = payload
-                # 1) If content is string
-                if isinstance(chunk.content, str):
-                    yield chunk.content
-                # 2) If content is list of segments
-                else:
-                    for seg in chunk.content:
-                        if seg.get("type") == "text":
-                            yield seg["text"]
-            elif mode == "values" and "__interrupt__" in payload:
-                # handle any interactive interrupts if needed…
-                state = Command(resume=input("…"))  # adjust for Streamlit if desired
-                break
-        else:
-            # normal completion
-            return
+# def langgraph_stream_to_text(graph, thread, initial_state):
+#     state = initial_state
+#     while True:
+#         for mode, payload in graph.stream(
+#                 state,
+#                 thread,
+#                 stream_mode=["messages", "values"]):
+#             if mode == "messages":
+#                 chunk, _ = payload
+#                 # 1) If content is string
+#                 if isinstance(chunk.content, str):
+#                     yield chunk.content
+#                 # 2) If content is list of segments
+#                 else:
+#                     for seg in chunk.content:
+#                         if seg.get("type") == "text":
+#                             yield seg["text"]
+#             elif mode == "values" and "__interrupt__" in payload:
+#                 # handle any interactive interrupts if needed…
+#                 state = Command(resume=input("…"))  # adjust for Streamlit if desired
+#                 break
+#         else:
+#             # normal completion
+#             return
+
+# if "messages" not in st.session_state:
+#     st.session_state.messages = []
+          
+# thread = {"configurable": {"thread_id": "1"}}
+# state = {"messages": []}
+
+# st.title("LangGraph + Streamlit Chat")
+
+# # User input
+# if prompt := st.chat_input("Type your message"):
+#     # 1. Record user message
+#     st.session_state.messages.append({"role": "user", "content": prompt})
+#     with st.chat_message("user"):
+#         st.markdown(prompt)
+
+#     # 2. Stream assistant response
+#     with st.chat_message("assistant"):
+#         response = st.write_stream(
+#             langgraph_stream_to_text(graph, thread, state)
+#         )
+
+#     # 3. Append final response to history
+#     st.session_state.messages.append({"role": "assistant", "content": response})
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-          
-thread = {"configurable": {"thread_id": "1"}}
+
 state = {"messages": []}
+thread = {"configurable":{"thread_id":"1"}}
 
-st.title("LangGraph + Streamlit Chat")
+def run_until_interrupt(state):
+    partial = ""
+    for mode, payload in graph.stream(state, thread, stream_mode=["messages","values"]):
+        if mode == "messages":
+            chunk, _ = payload
+            text = chunk.content if isinstance(chunk.content, str) else "".join(
+                seg["text"] for seg in chunk.content if seg.get("type")=="text"
+            )
+            partial += text
+            st.write(text, end="")   # or st.markdown to show it
+        elif mode == "values" and "__interrupt__" in payload:
+            return state, partial
+    return state, partial
 
-# User input
-if prompt := st.chat_input("Type your message"):
-    # 1. Record user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# In your Streamlit callback:
+if "awaiting" not in st.session_state:
+    # start or resume the graph
+    st.session_state.state, _ = run_until_interrupt(st.session_state.state)
+    st.session_state.awaiting = True
 
-    # 2. Stream assistant response
-    with st.chat_message("assistant"):
-        response = st.write_stream(
-            langgraph_stream_to_text(graph, thread, state)
-        )
+if st.session_state.awaiting:
+    # show input box for the interrupt
+    user_reply = st.chat_input("Your response:")
+    if user_reply:
+        # feed reply back into the graph
+        cmd = Command(resume=user_reply)
+        # next run will pick up the resume internally
+        st.session_state.state = graph.resume(st.session_state.state, cmd)
+        st.session_state.awaiting = False
+        # now loop back to run_until_interrupt and stream assistant again
 
-    # 3. Append final response to history
-    st.session_state.messages.append({"role": "assistant", "content": response})
