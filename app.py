@@ -27,12 +27,15 @@ with st.sidebar:
 if use_keys:
     if ak:
         st.session_state["ACCESS_KEY"] = ak
+        os.environ["AWS_ACCESS_KEY_ID"] = ak
     if sak:
         st.session_state["SECURE_ACCESS_KEY"] = sak
-    if inf_prof:
-        st.session_state["INFERENCE_PROFILE"] = inf_prof
+        os.environ["AWS_SECRET_ACCESS_KEY"] = sak
     if region:
         st.session_state["REGION"] = region
+        os.environ["AWS_REGION"] = region
+    if inf_prof:
+        st.session_state["INFERENCE_PROFILE"] = inf_prof  # no need to set in os unless used
     st.success("API keys updated.")
 
 # Ensure keys are available
