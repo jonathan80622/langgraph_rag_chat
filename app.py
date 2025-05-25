@@ -136,7 +136,7 @@ if user_text:
                         user_next = ask_user(intr.value)
                         if not user_next:
                             # pause until the user types something
-                            return
+                            st.stop()
 
                         # resume from the same point
                         st.session_state.state = Command(resume=user_next)
