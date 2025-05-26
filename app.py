@@ -167,7 +167,7 @@ if prompt := st.chat_input("Your response:"):
         if next_reply:
             st.session_state.messages.append({"role":"user","content":next_reply})
             st.session_state.state = Command(resume=next_reply)
-            st.experimental_rerun()
+            #st.experimental_rerun()
 
     # 5) If done: append assistant reply to history
     if done:
