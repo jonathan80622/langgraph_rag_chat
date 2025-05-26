@@ -147,11 +147,11 @@ if prompt := st.chat_input("Your response:"):
                     st.write(f'values incoming {payload}')
                     if "__interrupt__" in payload:
                         # stash interrupt and state, then break FOR
-                        st.session_state.state = payload['__interrupt__'][0] # payload is a dict {'__interrupt__': actualInterruptObject}
+                        st.session_state.state = payload
                         break
                     else:
                         # final snapshot → exit both loops
-                        st.session_state.state = payload['__interrupt__'][0]
+                        st.session_state.state = payload
                         placeholder.markdown(full)
                         done = True
                         break
@@ -161,7 +161,7 @@ if prompt := st.chat_input("Your response:"):
 
     # 4) Outside assistant: if interrupted, show user prompt
     if "__interrupt__" in st.session_state.state:
-        intr = st.session_state.state["__interrupt__"][0]
+        intr = st.session_state.state["__interrupt__"][0] # payload is a dict {'__interrupt__': actualInterruptObject}
         with st.chat_message("user"):
             next_reply = st.text_input(intr.value, key="resume_input")
         if next_reply:
