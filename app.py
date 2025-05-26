@@ -135,11 +135,11 @@ if user_text:
                 # ❗ NEW interrupt → save snapshot & rerun
                 if "__interrupt__" in payload:
                     st.session_state.snapshot = payload
-                    st.experimental_rerun()
+                    st.rerun()
                 # ✅ Finished assistant turn
                 else:
                     st.session_state.snapshot = payload
                     st.session_state.messages.append(
                         {"role": "assistant", "content": assistant_full}
                     )
-                    st.experimental_rerun()
+                    st.rerun()
