@@ -161,28 +161,28 @@ def build_graph(llm_with_tools, rag_tool_node):
         }
     
     from langgraph.types import interrupt
-    def get_user_input(state):
-        # 1. Only interrupt if no prior user_input
-        if "user_input" not in state:
-            answer = interrupt("User: ")
-            return {"user_input": answer}
-        # 2. On resume, skip interrupt and record the message
-        return {
-            "user_input": state["user_input"],
-            "messages": state.get("messages", [])
-                        + [HumanMessage(content=state["user_input"])]
-        }
+    def ask_node(state: State):
+        # fires exactly once, then returns only {"user_input"}
+        return {"user_input": interrupt("User: ")}
+    
+    def consume_node(state: State):
+        # now we have user_input, append it to messages
+        return {"messages": state.get("messages", [])
+                                    + [HumanMessage(content=state["user_input"])]}
+
         
     graph_builder = StateGraph(State)
-    graph_builder.add_node("get_user_input", get_user_input)
+    graph_builder.add_node("ask_node", ask_node)
+    graph_builder.add_node("consume_node", consume_node)
     graph_builder.add_node("chatbot", chatbot)
     graph_builder.add_node("rag_tool", rag_tool_node)
     
-    graph_builder.add_edge(START, "get_user_input")
-    graph_builder.add_edge("get_user_input", "chatbot")   # ← add this
+    graph_builder.add_edge(START, "ask_node")
+    graph_builder.add_edge("ask_node", "consume_node")
+    graph_builder.add_edge("consume_node", "chatbot")
     graph_builder.add_conditional_edges("chatbot", tools_condition,
                                         path_map={"tools": "rag_tool",
-                                                  "__end__":  "get_user_input",}) # since we name our tool node not "tools" but "rag_tool"
+                                                  "__end__":  "ask_node",}) # since we name our tool node not "tools" but "rag_tool"
     graph_builder.add_edge("rag_tool", "chatbot")
     
     return graph_builder.compile(checkpointer=memory,)
