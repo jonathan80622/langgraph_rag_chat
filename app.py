@@ -59,117 +59,87 @@ if not st.session_state.get("ACCESS_KEY") or not st.session_state.get("SECURE_AC
     st.warning("Please enter keys in the sidebar.")
     st.stop()
 
-
-INFERENCE_PROFILE_ARN = st.session_state["INFERENCE_PROFILE"] + "us.amazon.nova-lite-v1:0"
-
-llm = ChatBedrock(
-    model_id=INFERENCE_PROFILE_ARN,
-    beta_use_converse_api=True,
-    provider="amazon",
-    region_name="us-east-2",
-    temperature=0.3,
-)
-rag_graph = build_rag_graph(llm)
-rag_tool = Tool.from_function(
-    func=rag_runner,
-    name="RAG",
-    description="Performs RAG retrieval, reranking, and generation."
-)
-rag_tool_node = ToolNode(tools=[rag_tool])
-llm_with_tools = llm.bind_tools([rag_tool])
-
 if "graph" not in st.session_state:
-    st.session_state["graph"] = build_graph(
-        llm_with_tools, rag_tool_node
+    profile = st.session_state.get("INFERENCE_PROFILE", "")
+    llm = ChatBedrock(
+        model_id=profile + "us.amazon.nova-lite-v1:0",
+        beta_use_converse_api=True,
+        provider="amazon",
+        region_name=os.getenv("AWS_REGION", "us-east-2"),
+        temperature=0.3,
     )
-graph = st.session_state["graph"] # since graph is stateful but rag_graph isn't
 
-thread = {"configurable": {"thread_id": "1"}}
+    rag_graph   = build_rag_graph(llm)
+    rag_tool    = Tool.from_function(rag_runner, name="RAG",
+                                     description="Retrieval-augmented answer")
+    rag_tool_node = ToolNode(tools=[rag_tool])
+    llm_tools   = llm.bind_tools([rag_tool])
 
-if "state" not in st.session_state:
-    st.session_state.state = {"messages": []}
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.graph     = build_graph(llm_tools, rag_tool_node)
+    st.session_state.thread_id = "1"   # fixed thread for this demo
+    st.session_state.messages  = []    # visible chat history
 
-# --- Helper: inline user prompt for interrupts ---
-def ask_user(prompt: str):
-    return st.text_input(prompt, key=f"user_input_{len(st.session_state.messages)}")
+graph  = st.session_state.graph
+thread = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-# --- Render existing conversation history ---
+# ─── First-run bootstrap: drive graph until first interrupt & checkpoint ────
+if "snapshot" not in st.session_state:
+    for _mode, snap in graph.stream({"messages": []}, thread,
+                                    stream_mode=["values"]):
+        if "__interrupt__" in snap:
+            st.session_state.snapshot = snap    # full StateSnapshot
+            break
+    # render prompt box and stop – user must respond next run
+    intr_prompt = st.session_state.snapshot["__interrupt__"][0].value
+    st.chat_input(intr_prompt, key="resume_input")
+    st.stop()
+
+# ─── Helper: render past conversation bubbles ───────────────────────────────
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- Main user input box ---
-# 1) Render history…
+# ─── Decide which prompt to show: interrupt vs. normal chat ────────────────
+awaiting_input = "__interrupt__" in st.session_state.snapshot
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+if awaiting_input:
+    prompt_text = st.session_state.snapshot["__interrupt__"][0].value
+    user_text   = st.chat_input(prompt_text, key="resume_input")
+else:
+    prompt_text = "Your message"
+    user_text   = st.chat_input(prompt_text, key="new_message")
 
-# 2) User inputs initial prompt via st.chat_input
-if prompt := st.chat_input("Your response:"):
-    st.session_state.messages.append({"role":"user","content":prompt})
-    st.write(f'st.session_state.messages {st.session_state.messages}')
-    st.write(f'st.session_state.state before writing {st.session_state.state}')
+# ─── If user just typed something, resume or start the graph run ────────────
+if user_text:
+    st.session_state.messages.append({"role": "user", "content": user_text})
+    resume_cmd = Command(resume=user_text)
 
-    st.session_state.state = Command(resume=prompt)
-
-    st.write(f'st.session_state.state after writing {st.session_state.state}')
-
-    # 3) Assistant bubble
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        full_reply = ""
-        needs_user_input = False
+        assistant_full = ""
 
-        while not needs_user_input:
-            st.write('not needs_user_input')
-            for mode, payload in graph.stream(
-                st.session_state.state, thread,
-                stream_mode=["messages","values"]
-            ):
-                if mode == "messages":
-                    chunk, _ = payload
-                    st.write(f'Message incoming: {chunk}')
-                    text = (
-                        chunk.content
-                        if isinstance(chunk.content, str)
-                        else "".join(
-                            seg["text"] 
-                            for seg in chunk.content 
-                            if seg.get("type") == "text"
-                        )
+        for mode, payload in graph.stream(resume_cmd, thread,
+                                          stream_mode=["messages", "values"]):
+            if mode == "messages":
+                chunk, _ = payload
+                if isinstance(chunk.content, str):
+                    assistant_full += chunk.content
+                else:
+                    assistant_full += "".join(
+                        seg["text"] for seg in chunk.content
+                        if seg.get("type") == "text"
                     )
-                    full_reply += text
-                    placeholder.markdown(full_reply)
-                elif mode == "values":
-                    st.write(f'values incoming {payload}')
-                    if "__interrupt__" in payload:
-                        # stash interrupt and state, then break FOR
-                        st.session_state.state = payload
-                        break
-                    else:
-                        # final snapshot → exit both loops
-                        st.session_state.state = payload
-                        placeholder.markdown(full_reply)
-                        needs_user_input = True
-                        break
-            if not needs_user_input and "__interrupt__" in st.session_state.state:
-                # we just broke on an interrupt
-                pass  # outer while loops again only after user reply
+                placeholder.markdown(assistant_full)
 
-    # 4) Outside assistant: if interrupted, show user prompt
-    if "__interrupt__" in st.session_state.state:
-        intr = st.session_state.state["__interrupt__"][0] # payload is a dict {'__interrupt__': actualInterruptObject}
-        with st.chat_message("user"):
-            next_reply = st.text_input(intr.value, key="resume_input")
-        if next_reply:
-            st.session_state.messages.append({"role":"user","content":next_reply})
-            st.session_state.state = Command(resume=next_reply)
-            #st.experimental_rerun()
-
-    # 5) If needs_user_input: append assistant reply to history
-    if needs_user_input:
-        st.session_state.messages.append({"role":"assistant","content":full_reply})
-
+            elif mode == "values":
+                # ❗ NEW interrupt → save snapshot & rerun
+                if "__interrupt__" in payload:
+                    st.session_state.snapshot = payload
+                    st.experimental_rerun()
+                # ✅ Finished assistant turn
+                else:
+                    st.session_state.snapshot = payload
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": assistant_full}
+                    )
+                    st.experimental_rerun()
