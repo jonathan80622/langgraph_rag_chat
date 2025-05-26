@@ -161,13 +161,18 @@ def build_graph(llm_with_tools, rag_tool_node):
         }
     
     from langgraph.types import interrupt
-    def get_user_input(state: State):
-        # Pause and surface prompt; when resumed, `answer` will contain user input.
-        answer = interrupt("User: ")
-        # After resume, append the user line to history and continue
-        # return {"messages": state.get("messages", []) + [("user", answer)]} -> THIS IS WRONG
-        return {"messages": state.get("messages", []) + [HumanMessage(content=answer)]}
-    
+    def get_user_input(state):
+        # 1. Only interrupt if no prior user_input
+        if "user_input" not in state:
+            answer = interrupt("User: ")
+            return {"user_input": answer}
+        # 2. On resume, skip interrupt and record the message
+        return {
+            "user_input": state["user_input"],
+            "messages": state.get("messages", [])
+                        + [HumanMessage(content=state["user_input"])]
+        }
+        
     graph_builder = StateGraph(State)
     graph_builder.add_node("get_user_input", get_user_input)
     graph_builder.add_node("chatbot", chatbot)
