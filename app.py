@@ -120,7 +120,7 @@ if prompt := st.chat_input("Your response:"):
     # 3) Assistant bubble
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        full = ""
+        full_reply = ""
         done = False
 
         while not done:
@@ -147,11 +147,11 @@ if prompt := st.chat_input("Your response:"):
                     st.write(f'values incoming {payload}')
                     if "__interrupt__" in payload:
                         # stash interrupt and state, then break FOR
-                        st.session_state.state = payload
+                        st.session_state.state = payload['__interrupt__'] # payload is a dict {'__interrupt__': actualInterruptObject}
                         break
                     else:
                         # final snapshot → exit both loops
-                        st.session_state.state = payload
+                        st.session_state.state = payload['__interrupt__']
                         placeholder.markdown(full)
                         done = True
                         break
