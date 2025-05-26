@@ -121,10 +121,10 @@ if prompt := st.chat_input("Your response:"):
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_reply = ""
-        done = False
+        needs_user_input = False
 
-        while not done:
-            st.write('not done')
+        while not needs_user_input:
+            st.write('not needs_user_input')
             for mode, payload in graph.stream(
                 st.session_state.state, thread,
                 stream_mode=["messages","values"]
@@ -152,10 +152,10 @@ if prompt := st.chat_input("Your response:"):
                     else:
                         # final snapshot → exit both loops
                         st.session_state.state = payload
-                        placeholder.markdown(full)
-                        done = True
+                        placeholder.markdown(full_reply)
+                        needs_user_input = True
                         break
-            if not done and "__interrupt__" in st.session_state.state:
+            if not needs_user_input and "__interrupt__" in st.session_state.state:
                 # we just broke on an interrupt
                 pass  # outer while loops again only after user reply
 
@@ -169,7 +169,7 @@ if prompt := st.chat_input("Your response:"):
             st.session_state.state = Command(resume=next_reply)
             #st.experimental_rerun()
 
-    # 5) If done: append assistant reply to history
-    if done:
+    # 5) If needs_user_input: append assistant reply to history
+    if needs_user_input:
         st.session_state.messages.append({"role":"assistant","content":full})
 
