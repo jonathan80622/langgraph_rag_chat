@@ -171,5 +171,5 @@ if prompt := st.chat_input("Your response:"):
 
     # 5) If needs_user_input: append assistant reply to history
     if needs_user_input:
-        st.session_state.messages.append({"role":"assistant","content":full})
+        st.session_state.messages.append({"role":"assistant","content":full_reply})
 
