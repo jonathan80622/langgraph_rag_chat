@@ -127,13 +127,13 @@ if user_input:
                 # if the graph pauses again for input
                 if "__interrupt__" in payload:
                     st.session_state.snapshot = payload
-                    st.experimental_rerun()  # loop back to ask_node
+                    st.rerun()  # loop back to ask_node
                 else:
                     # complete this turn and loop back
                     st.session_state.snapshot = payload
                     st.session_state.messages.append(
                         {"role": "assistant", "content": full}
                     )
-                    st.experimental_rerun()
+                    st.rerun()
 
 # ————— End ————————————
