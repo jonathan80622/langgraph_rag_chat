@@ -96,60 +96,61 @@ if "snapshot" not in st.session_state:
 
 prompt = st.session_state.snapshot["__interrupt__"][0].value
 st.write("🛑 Prompting user with interrupt:", prompt)  # DEBUG
-st.chat_input(prompt, key="resume_input")
-st.stop()
+resume_input = st.chat_input(prompt)
 
-# ————— Step 2: Show chat history ————————————————————————————————
-st.write("📜 Rendering conversation history:")  # DEBUG
-for msg in st.session_state.messages:
-    st.write(f"{msg['role'].upper()}: {msg['content']}")  # DEBUG
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# ————— Step 3: Handle next user input ———————————————————————————————
-st.write("snapshot")
-st.write(f"snapshot looks like {st.session_state.snapshot}")
-st.write("SNAPSHOT")
-prompt = st.session_state.snapshot["__interrupt__"][0].value
-st.write("🔁 Waiting for user input — prompt:", prompt)  # DEBUG
-user_input = st.chat_input(prompt, key="resume_input")
-st.write("✍️ User typed:", user_input)  # DEBUG
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    cmd = Command(resume=user_input)
-    st.write("🧠 Resuming graph with Command:", cmd)  # DEBUG
-
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        full = ""
-        st.write("▶️ Streaming from LangGraph...")  # DEBUG
-
-        for mode, payload in graph.stream(cmd, thread, stream_mode=["messages", "values"]):
-            st.write("📡 stream mode:", mode)  # DEBUG
-
-            if mode == "messages":
-                chunk, _ = payload
-                st.write("💬 message chunk:", chunk)  # DEBUG
-                text = (chunk.content if isinstance(chunk.content, str)
-                        else "".join(seg["text"] for seg in chunk.content
-                                     if seg.get("type") == "text"))
-                full += text
-                placeholder.markdown(full)
-
-            elif mode == "values":
-                st.write("📦 values payload keys:", list(payload.keys()))  # DEBUG
-                if "__interrupt__" in payload:
-                    st.session_state.snapshot = payload
-                    st.write("🔂 New interrupt received, looping...")  # DEBUG
-                    st.rerun()
-                else:
-                    st.session_state.snapshot = payload
-                    st.session_state.messages.append(
-                        {"role": "assistant", "content": full}
-                    )
-                    st.write("✅ Assistant reply complete, looping...")  # DEBUG
-                    st.rerun()
-
-# ————— END ————————————————————————————————————————————————
-st.write("✅ Script completed; waiting for user input.")  # DEBUG
+if resume_input:
+    
+    # ————— Step 2: Show chat history ————————————————————————————————
+    st.write("📜 Rendering conversation history:")  # DEBUG
+    for msg in st.session_state.messages:
+        st.write(f"{msg['role'].upper()}: {msg['content']}")  # DEBUG
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    
+    # ————— Step 3: Handle next user input ———————————————————————————————
+    st.write("snapshot")
+    st.write(f"snapshot looks like {st.session_state.snapshot}")
+    st.write("SNAPSHOT")
+    prompt = st.session_state.snapshot["__interrupt__"][0].value
+    st.write("🔁 Waiting for user input — prompt:", prompt)  # DEBUG
+    user_input = st.chat_input(prompt, key="resume_input")
+    st.write("✍️ User typed:", user_input)  # DEBUG
+    
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        cmd = Command(resume=user_input)
+        st.write("🧠 Resuming graph with Command:", cmd)  # DEBUG
+    
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            full = ""
+            st.write("▶️ Streaming from LangGraph...")  # DEBUG
+    
+            for mode, payload in graph.stream(cmd, thread, stream_mode=["messages", "values"]):
+                st.write("📡 stream mode:", mode)  # DEBUG
+    
+                if mode == "messages":
+                    chunk, _ = payload
+                    st.write("💬 message chunk:", chunk)  # DEBUG
+                    text = (chunk.content if isinstance(chunk.content, str)
+                            else "".join(seg["text"] for seg in chunk.content
+                                         if seg.get("type") == "text"))
+                    full += text
+                    placeholder.markdown(full)
+    
+                elif mode == "values":
+                    st.write("📦 values payload keys:", list(payload.keys()))  # DEBUG
+                    if "__interrupt__" in payload:
+                        st.session_state.snapshot = payload
+                        st.write("🔂 New interrupt received, looping...")  # DEBUG
+                        st.rerun()
+                    else:
+                        st.session_state.snapshot = payload
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": full}
+                        )
+                        st.write("✅ Assistant reply complete, looping...")  # DEBUG
+                        st.rerun()
+    
+    # ————— END ————————————————————————————————————————————————
+    st.write("✅ Script completed; waiting for user input.")  # DEBUG
