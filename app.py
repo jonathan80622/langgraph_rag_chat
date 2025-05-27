@@ -15,16 +15,6 @@ from langgraph.prebuilt.tool_node import ToolNode
 
 import streamlit as st
 
-def debug_log(line: str):
-    """Append a debug line to session_state and show it in the sidebar."""
-    if "debug_logs" not in st.session_state:
-        st.session_state.debug_logs = []
-    st.session_state.debug_logs.append(line)
-
-    # Render in a sidebar expander
-    with st.sidebar.expander("🐞 Debug Logs", expanded=False):
-        for msg in st.session_state.debug_logs[-50:]:  # show last 50
-            st.text(msg)
 
 
 st.set_page_config(page_title="LangGraph Chatbot", layout="wide")
@@ -60,7 +50,9 @@ if not st.session_state.get("ACCESS_KEY") or not st.session_state.get("SECURE_AC
     st.stop()
 
 # ————— Initialize or reuse the LangGraph “chatbot” ————————————————————
+# ————— Initialize or reuse the LangGraph “chatbot” ————————————————————
 if "graph" not in st.session_state:
+    st.write("🔧 Initializing LangGraph and Bedrock client")  # DEBUG
     profile = st.session_state.get("INFERENCE_PROFILE", "")
     llm = ChatBedrock(
         model_id=profile + "us.amazon.nova-lite-v1:0",
@@ -71,69 +63,87 @@ if "graph" not in st.session_state:
     )
 
     # Build RAG + chat graph
-    rag_graph    = build_rag_graph(llm)
-    rag_tool     = Tool.from_function(rag_runner, name="RAG",
-                                      description="Retrieval-augmented answer")
-    rag_tool_node= ToolNode(tools=[rag_tool])
-    llm_with_tools = llm.bind_tools([rag_tool])
-    st.session_state.graph      = build_graph(llm_with_tools, rag_tool_node)
-    st.session_state.thread_id   = "1"
-    st.session_state.messages    = []
+    rag_graph     = build_rag_graph(llm)
+    rag_tool      = Tool.from_function(rag_runner, name="RAG",
+                                       description="Retrieval-augmented answer")
+    rag_tool_node = ToolNode(tools=[rag_tool])
+    llm_with_tools= llm.bind_tools([rag_tool])
+    st.session_state.graph     = build_graph(llm_with_tools, rag_tool_node)
+    st.session_state.thread_id = "1"
+    st.session_state.messages  = []
+    st.write("✅ Graph initialized and saved")  # DEBUG
 
 graph  = st.session_state.graph
 thread = {"configurable": {"thread_id": st.session_state.thread_id}}
+st.write("📌 Using thread ID:", thread)  # DEBUG
 
 # ————— Step 1: Bootstrap to the first interrupt ——————————————————————
 if "snapshot" not in st.session_state:
+    st.write("🚀 First run — bootstrapping graph to first interrupt")  # DEBUG
     for mode, snap in graph.stream({"messages": []}, thread, stream_mode=["values"]):
+        st.write("→ stream mode:", mode)  # DEBUG
+        st.write("→ snapshot keys:", list(snap.keys()))  # DEBUG
         if "__interrupt__" in snap:
             st.session_state.snapshot = snap
+            st.write("💡 Got first interrupt:", snap["__interrupt__"])  # DEBUG
             break
+    else:
+        st.error("❌ Graph returned no interrupt on startup.")
+        st.stop()
 
-    # Ask user and halt until they reply
     prompt = st.session_state.snapshot["__interrupt__"][0].value
+    st.write("🛑 Prompting user with interrupt:", prompt)  # DEBUG
     st.chat_input(prompt, key="resume_input")
     st.stop()
 
 # ————— Step 2: Show chat history ————————————————————————————————
+st.write("📜 Rendering conversation history:")  # DEBUG
 for msg in st.session_state.messages:
+    st.write(f"{msg['role'].upper()}: {msg['content']}")  # DEBUG
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# ————— Step 3: Always prompt based on LangGraph’s interrupt —————————
+# ————— Step 3: Handle next user input ———————————————————————————————
 prompt = st.session_state.snapshot["__interrupt__"][0].value
+st.write("🔁 Waiting for user input — prompt:", prompt)  # DEBUG
 user_input = st.chat_input(prompt, key="resume_input")
+st.write("✍️ User typed:", user_input)  # DEBUG
 
 if user_input:
-    # 3a) append the user bubble
     st.session_state.messages.append({"role": "user", "content": user_input})
     cmd = Command(resume=user_input)
+    st.write("🧠 Resuming graph with Command:", cmd)  # DEBUG
 
-    # 3b) stream the assistant turn
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full = ""
+        st.write("▶️ Streaming from LangGraph...")  # DEBUG
 
-        for mode, payload in graph.stream(cmd, thread, stream_mode=["messages","values"]):
+        for mode, payload in graph.stream(cmd, thread, stream_mode=["messages", "values"]):
+            st.write("📡 stream mode:", mode)  # DEBUG
+
             if mode == "messages":
                 chunk, _ = payload
+                st.write("💬 message chunk:", chunk)  # DEBUG
                 text = (chunk.content if isinstance(chunk.content, str)
                         else "".join(seg["text"] for seg in chunk.content
-                                     if seg.get("type")=="text"))
+                                     if seg.get("type") == "text"))
                 full += text
                 placeholder.markdown(full)
 
             elif mode == "values":
-                # if the graph pauses again for input
+                st.write("📦 values payload keys:", list(payload.keys()))  # DEBUG
                 if "__interrupt__" in payload:
                     st.session_state.snapshot = payload
-                    st.rerun()  # loop back to ask_node
+                    st.write("🔂 New interrupt received, looping...")  # DEBUG
+                    st.rerun()
                 else:
-                    # complete this turn and loop back
                     st.session_state.snapshot = payload
                     st.session_state.messages.append(
                         {"role": "assistant", "content": full}
                     )
+                    st.write("✅ Assistant reply complete, looping...")  # DEBUG
                     st.rerun()
 
-# ————— End ————————————
+# ————— END ————————————————————————————————————————————————
+st.write("✅ Script completed; waiting for user input.")  # DEBUG
