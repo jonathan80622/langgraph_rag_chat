@@ -59,102 +59,81 @@ if not st.session_state.get("ACCESS_KEY") or not st.session_state.get("SECURE_AC
     st.warning("Please enter keys in the sidebar.")
     st.stop()
 
+# ————— Initialize or reuse the LangGraph “chatbot” ————————————————————
 if "graph" not in st.session_state:
-    st.write("🔧 Initializing LLM and Graph")  # DEBUG
     profile = st.session_state.get("INFERENCE_PROFILE", "")
-    llm = ChatBedrock(model_id=profile + "us.amazon.nova-lite-v1:0", 
-                      beta_use_converse_api=True,
-                      provider="amazon", region_name=os.getenv("AWS_REGION","us-east-2"),
-                      temperature=0.3)
-    rag_graph   = build_rag_graph(llm)
-    rag_tool    = Tool.from_function(rag_runner, name="RAG", description="RAG Tool")
-    rag_tool_node = ToolNode(tools=[rag_tool])
-    llm_tools   = llm.bind_tools([rag_tool])
-    st.session_state.graph     = build_graph(llm_tools, rag_tool_node)
-    st.session_state.thread_id = "1"
-    st.session_state.messages  = []
-else:
-    st.write("✔️ Reusing existing graph")  # DEBUG
+    llm = ChatBedrock(
+        model_id=profile + "us.amazon.nova-lite-v1:0",
+        beta_use_converse_api=True,
+        provider="amazon",
+        region_name=os.getenv("AWS_REGION", "us-east-2"),
+        temperature=0.3,
+    )
+
+    # Build RAG + chat graph
+    rag_graph    = build_rag_graph(llm)
+    rag_tool     = Tool.from_function(rag_runner, name="RAG",
+                                      description="Retrieval-augmented answer")
+    rag_tool_node= ToolNode(tools=[rag_tool])
+    llm_with_tools = llm.bind_tools([rag_tool])
+    st.session_state.graph      = build_graph(llm_with_tools, rag_tool_node)
+    st.session_state.thread_id   = "1"
+    st.session_state.messages    = []
 
 graph  = st.session_state.graph
 thread = {"configurable": {"thread_id": st.session_state.thread_id}}
-st.write("thread config:", thread)  # DEBUG
 
-# ─── First-run bootstrap ────────────────────────────────────────────────────
+# ————— Step 1: Bootstrap to the first interrupt ——————————————————————
 if "snapshot" not in st.session_state:
-    st.write("🚀 Bootstrapping to first interrupt")  # DEBUG
     for mode, snap in graph.stream({"messages": []}, thread, stream_mode=["values"]):
-        st.write("boot_mode:", mode, "snap keys:", list(snap.keys()))  # DEBUG
         if "__interrupt__" in snap:
-            st.write("💡 Got first interrupt:", snap["__interrupt__"])  # DEBUG
             st.session_state.snapshot = snap
             break
 
-    # show prompt and stop
-    intr_prompt = st.session_state.snapshot["__interrupt__"][0].value
-    st.write("Showing interrupt prompt to user:", intr_prompt)  # DEBUG
-    _ = st.chat_input(intr_prompt, key="resume_input")
+    # Ask user and halt until they reply
+    prompt = st.session_state.snapshot["__interrupt__"][0].value
+    st.chat_input(prompt, key="resume_input")
     st.stop()
 
-# ─── Render past history ─────────────────────────────────────────────────────
-st.write("History:", st.session_state.messages)  # DEBUG
+# ————— Step 2: Show chat history ————————————————————————————————
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# ─── Choose prompt text ──────────────────────────────────────────────────────
-awaiting_input = "__interrupt__" in st.session_state.snapshot
-st.write("awaiting_input =", awaiting_input)  # DEBUG
+# ————— Step 3: Always prompt based on LangGraph’s interrupt —————————
+prompt = st.session_state.snapshot["__interrupt__"][0].value
+user_input = st.chat_input(prompt, key="resume_input")
 
-if awaiting_input:
-    prompt_text = st.session_state.snapshot["__interrupt__"][0].value
-    st.write("Prompting for interrupt response:", prompt_text)  # DEBUG
-    user_text = st.chat_input(prompt_text, key="resume_input")
-else:
-    prompt_text = "Your message"
-    st.write("Prompting for free-form chat:", prompt_text)  # DEBUG
-    user_text = st.chat_input(prompt_text, key="new_message")
+if user_input:
+    # 3a) append the user bubble
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    cmd = Command(resume=user_input)
 
-st.write("user_text:", repr(user_text))  # DEBUG
-
-# ─── If user typed something ────────────────────────────────────────────────
-if user_text:
-    st.write("✅ Received user input:", user_text)  # DEBUG
-    st.session_state.messages.append({"role": "user", "content": user_text})
-    resume_cmd = Command(resume=user_text)
-    st.write("Resume command:", resume_cmd)  # DEBUG
-
+    # 3b) stream the assistant turn
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        assistant_full = ""
-        st.write("▶️ Entering graph.stream")  # DEBUG
+        full = ""
 
-        for mode, payload in graph.stream(resume_cmd, thread, stream_mode=["messages", "values"]):
-            st.write("stream mode:", mode, "payload keys:", list(payload.keys()))  # DEBUG
-
+        for mode, payload in graph.stream(cmd, thread, stream_mode=["messages","values"]):
             if mode == "messages":
                 chunk, _ = payload
-                st.write("→ message chunk:", chunk)  # DEBUG
                 text = (chunk.content if isinstance(chunk.content, str)
-                        else "".join(seg["text"] for seg in chunk.content if seg.get("type")=="text"))
-                assistant_full += text
-                placeholder.markdown(assistant_full)
+                        else "".join(seg["text"] for seg in chunk.content
+                                     if seg.get("type")=="text"))
+                full += text
+                placeholder.markdown(full)
 
             elif mode == "values":
-                st.write("→ values payload:", payload)  # DEBUG
+                # if the graph pauses again for input
                 if "__interrupt__" in payload:
-                    st.write("❗ New interrupt detected:", payload["__interrupt__"])  # DEBUG
                     st.session_state.snapshot = payload
-                    st.write("Calling rerun() after interrupt")  # DEBUG
-                    st.rerun()
+                    st.experimental_rerun()  # loop back to ask_node
                 else:
-                    st.write("✅ Final snapshot, finishing assistant turn")  # DEBUG
+                    # complete this turn and loop back
                     st.session_state.snapshot = payload
                     st.session_state.messages.append(
-                        {"role": "assistant", "content": assistant_full}
+                        {"role": "assistant", "content": full}
                     )
-                    st.write("Calling rerun() after completion")  # DEBUG
-                    st.rerun()
+                    st.experimental_rerun()
 
-# ─── Done ────────────────────────────────────────────────────────────────────
-st.write("End of script reached")  # DEBUG
+# ————— End ————————————
