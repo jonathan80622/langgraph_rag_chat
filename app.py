@@ -86,6 +86,7 @@ if "snapshot" not in st.session_state:
         if "__interrupt__" in snap:
             st.session_state.snapshot = snap
             st.write("💡 Got first interrupt:", snap["__interrupt__"])  # DEBUG
+            st.write("st.session_state.snapshot is now", st.session_state.snapshot)
             break
     else:
         st.error("❌ Graph returned no interrupt on startup.")
