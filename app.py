@@ -94,10 +94,10 @@ if "snapshot" not in st.session_state:
         st.error("❌ Graph returned no interrupt on startup.")
         st.stop()
 
-    prompt = st.session_state.snapshot["__interrupt__"][0].value
-    st.write("🛑 Prompting user with interrupt:", prompt)  # DEBUG
-    st.chat_input(prompt, key="resume_input")
-    st.stop()
+prompt = st.session_state.snapshot["__interrupt__"][0].value
+st.write("🛑 Prompting user with interrupt:", prompt)  # DEBUG
+st.chat_input(prompt, key="resume_input")
+st.stop()
 
 # ————— Step 2: Show chat history ————————————————————————————————
 st.write("📜 Rendering conversation history:")  # DEBUG
