@@ -104,7 +104,9 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # ————— Step 3: Handle next user input ———————————————————————————————
+st.write("snapshot")
 st.write(f"snapshot looks like {st.session_state.snapshot}")
+st.write("SNAPSHOT")
 prompt = st.session_state.snapshot["__interrupt__"][0].value
 st.write("🔁 Waiting for user input — prompt:", prompt)  # DEBUG
 user_input = st.chat_input(prompt, key="resume_input")
