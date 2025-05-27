@@ -163,10 +163,12 @@ def build_graph(llm_with_tools, rag_tool_node):
     from langgraph.types import interrupt
     def ask_node(state: State):
         # fires exactly once, then returns only {"user_input"}
+        print(f'entering ask_node with state {state}')
         return {"user_input": interrupt("User: ")}
     
     def consume_node(state: State):
         # now we have user_input, append it to messages
+        print(f'entering consume_node with state {state}')
         return {"messages": state.get("messages", [])
                                     + [HumanMessage(content=state["user_input"])]}
 
